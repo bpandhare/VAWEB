@@ -1,0 +1,149 @@
+.vh-sidebar {
+  width: 320px;
+  background: linear-gradient(180deg, #0b1f32 0%, #0d2842 60%, #103555 100%);
+  color: #f8fbff;
+  padding: 2.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.vh-brand h1 {
+  font-size: 1.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0.5rem 0 0;
+}
+
+.vh-brand span {
+  color: #2ad1ff;
+}
+
+.vh-pill {
+  display: inline-block;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+}
+
+.vh-tagline {
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0.5rem 0 0;
+}
+
+.vh-highlight h2,
+.vh-quick-links h2 {
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.2em;
+  margin-bottom: 0.75rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.vh-highlight ul,
+.vh-quick-links ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vh-highlight li {
+  padding-left: 1rem;
+  position: relative;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.vh-highlight li::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2ad1ff;
+  position: absolute;
+  left: 0;
+  top: 0.45rem;
+}
+
+.vh-quick-links a {
+  color: #8ce3ff;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.vh-quick-links a:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+.vh-meta {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.8);
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  padding-top: 1rem;
+  margin-top: auto;
+}
+
+.vh-meta small {
+  display: block;
+  margin-top: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.vh-nav {
+  margin-top: 1rem;
+}
+
+.vh-nav h2 {
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.2em;
+  margin-bottom: 0.75rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.vh-nav-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vh-nav-links li {
+  margin: 0;
+}
+
+.vh-nav-links button {
+  width: 100%;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.vh-nav-links button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+
+.vh-nav-links button.active {
+  background: rgba(42, 209, 255, 0.2);
+  border-color: #2ad1ff;
+  color: #2ad1ff;
+  font-weight: 600;
+}
+
+

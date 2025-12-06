@@ -1,0 +1,30 @@
+#root {
+  width: 100%;
+  min-height: 100vh;
+  background: #e6edf7;
+}
+
+.vh-app-shell {
+  min-height: 100vh;
+  display: flex;
+  background-image: radial-gradient(circle at top, rgba(42, 209, 255, 0.15), transparent 45%);
+}
+
+.vh-content {
+  flex: 1;
+  padding: 3rem;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: linear-gradient(135deg, #f5f8ff 0%, #eaeffc 100%);
+}
+
+@media (max-width: 960px) {
+  .vh-app-shell {
+    flex-direction: column;
+}
+
+  .vh-content {
+    padding: 2rem 1.5rem;
+  }
+}
