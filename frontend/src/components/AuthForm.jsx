@@ -83,7 +83,7 @@ function AuthForm() {
         throw new Error('Authentication succeeded but server returned invalid data.')
       }
 
-      login({ token: data.token, username: data.username })
+      login({ token: data.token, username: data.username, role: data.role })
       setAlert({
         type: 'success',
         message: mode === 'login' ? 'Logged in successfully.' : 'Registered & logged in.',
@@ -138,13 +138,17 @@ function AuthForm() {
         {mode === 'register' && (
           <label>
             <span>Role</span>
-            <input
-              type="text"
+            <select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              placeholder="e.g. Engineer, Manager"
               required
-            />
+            >
+              <option value="">-- Select your role --</option>
+              <option value="Manager">Manager</option>
+              <option value="Team Leader">Team Leader</option>
+              <option value="Senior Engineer">Senior Engineer</option>
+              <option value="Junior Engineer">Junior Engineer</option>
+            </select>
           </label>
         )}
 

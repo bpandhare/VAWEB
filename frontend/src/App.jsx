@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar'
 import AuthForm from './components/AuthForm'
 import HourlyReportForm from './components/HourlyReportForm'
 import DailyTargetForm from './components/DailyTargetForm'
+import ActivityDisplay from './components/ActivityDisplay'
 import { AuthProvider, useAuth } from './components/AuthContext'
 import './App.css'
 import './index.css'
@@ -30,8 +31,12 @@ function Content() {
         {user ? (
           currentPage === 'hourly' ? (
             <HourlyReportForm />
-          ) : (
+          ) : currentPage === 'daily' ? (
             <DailyTargetForm />
+          ) : currentPage === 'activity' ? (
+            <ActivityDisplay />
+          ) : (
+            <HourlyReportForm />
           )
         ) : (
           <AuthForm />

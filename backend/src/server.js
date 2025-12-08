@@ -5,6 +5,7 @@ import activityRouter from './routes/activity.js'
 import authRouter from './routes/auth.js'
 import hourlyReportRouter from './routes/hourlyReport.js'
 import dailyTargetRouter from './routes/dailyTarget.js'
+import employeeActivityRouter from './routes/employeeActivity.js'
 import pool from './db.js'
 
 dotenv.config()
@@ -38,6 +39,18 @@ async function migrateDatabase() {
       }
     }
 
+    // Try to add manager_id column for hierarchical structure
+    try {
+      await pool.execute('ALTER TABLE users ADD COLUMN manager_id INT REFERENCES users(id)')
+      console.log('✓ Added manager_id column to users table')
+    } catch (error) {
+      if (error.code === 'ER_DUP_FIELDNAME') {
+        // Column already exists, that's fine
+      } else {
+        throw error
+      }
+    }
+
     // Create hourly_reports table if it doesn't exist
     try {
       await pool.execute(`
@@ -56,6 +69,26 @@ async function migrateDatabase() {
       console.log('✓ Created hourly_reports table')
     } catch (error) {
       console.error('Error creating hourly_reports table:', error.message)
+    }
+
+    // Ensure hourly_reports has user_id and time_period columns used by APIs
+    try {
+      await pool.execute('ALTER TABLE hourly_reports ADD COLUMN IF NOT EXISTS user_id INT NULL')
+      await pool.execute("ALTER TABLE hourly_reports ADD COLUMN IF NOT EXISTS time_period VARCHAR(50) NULL")
+      console.log('✓ Ensured hourly_reports has user_id and time_period columns')
+    } catch (error) {
+      // Some MySQL versions don't support IF NOT EXISTS in ALTER TABLE for columns; ignore duplicate errors
+      if (error.code && error.code === 'ER_DUP_FIELDNAME') {
+        // already exists
+      } else {
+        // Try a safer approach: add column without IF NOT EXISTS and ignore error
+        try {
+          await pool.execute('ALTER TABLE hourly_reports ADD COLUMN user_id INT NULL')
+        } catch (e) {}
+        try {
+          await pool.execute('ALTER TABLE hourly_reports ADD COLUMN time_period VARCHAR(50) NULL')
+        } catch (e) {}
+      }
     }
 
     // Create daily_target_reports table if it doesn't exist
@@ -137,6 +170,7 @@ async function migrateDatabase() {
       { name: 'site_end_date', type: 'DATE' },
       { name: 'incharge', type: 'VARCHAR(120) DEFAULT ""' },
       { name: 'remark', type: 'TEXT' },
+      { name: 'user_id', type: 'INT' },
     ]
 
     for (const column of newColumns) {
@@ -176,6 +210,7 @@ app.use('/api/auth', authRouter)
 app.use('/api/activity', activityRouter)
 app.use('/api/hourly-report', hourlyReportRouter)
 app.use('/api/daily-target', dailyTargetRouter)
+app.use('/api/employee-activity', employeeActivityRouter)
 
 app.use((err, _req, res, _next) => {
   console.error('Unhandled error', err)

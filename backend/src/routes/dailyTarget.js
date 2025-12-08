@@ -2,12 +2,31 @@ import { Router } from 'express'
 import multer from 'multer'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import jwt from 'jsonwebtoken'
 import pool from '../db.js'
 import fs from 'fs'
 
 const router = Router()
+const JWT_SECRET = process.env.JWT_SECRET ?? 'vickhardth-site-pulse-secret'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
+// Middleware to verify token
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Missing or invalid token' })
+  }
+
+  const token = authHeader.slice(7)
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
+    req.user = decoded
+    next()
+  } catch (error) {
+    res.status(401).json({ message: 'Invalid token' })
+  }
+}
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, '../../uploads')
@@ -40,8 +59,9 @@ const upload = multer({
   },
 })
 
-router.post('/', upload.single('momReport'), async (req, res) => {
+router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
   try {
+    const userId = req.user.id
     const {
       reportDate,
       inTime,
@@ -158,8 +178,8 @@ router.post('/', upload.single('momReport'), async (req, res) => {
         additional_activity, who_added_activity, daily_pending_target,
         reason_pending_target, problem_faced, problem_resolved,
         online_support_required, support_engineer_name,
-        site_start_date, site_end_date, incharge, remark)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        site_start_date, site_end_date, incharge, remark, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         finalReportDate,
         finalInTime,
@@ -190,6 +210,7 @@ router.post('/', upload.single('momReport'), async (req, res) => {
         siteEndDate || null,
         finalIncharge,
         remark || null,
+        userId,
       ]
     )
 

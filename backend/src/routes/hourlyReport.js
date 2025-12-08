@@ -1,20 +1,39 @@
 import { Router } from 'express'
+import jwt from 'jsonwebtoken'
 import pool from '../db.js'
 
 const router = Router()
+const JWT_SECRET = process.env.JWT_SECRET ?? 'vickhardth-site-pulse-secret'
+
+// Middleware to verify token and attach user info
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Missing or invalid token' })
+  }
+
+  const token = authHeader.slice(7)
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
+    req.user = decoded
+    next()
+  } catch (error) {
+    res.status(401).json({ message: 'Invalid token' })
+  }
+}
 
 // GET route to fetch daily target reports for auto-filling hourly reports
-router.get('/daily-targets/:date', async (req, res) => {
+router.get('/daily-targets/:date', verifyToken, async (req, res) => {
   try {
     const { date } = req.params
+    const userId = req.user.id
 
-    
     const [rows] = await pool.execute(
-      `SELECT id, project_no, daily_target_planned, report_date, site_start_date
+      `SELECT id, project_no, daily_target_planned, report_date, site_start_date, location_type
        FROM daily_target_reports
-       WHERE DATE(report_date) = ?
+       WHERE DATE(report_date) = ? AND user_id = ?
        ORDER BY created_at DESC`,
-      [date]
+      [date, userId]
     )
 
     res.json(rows)
@@ -25,17 +44,15 @@ router.get('/daily-targets/:date', async (req, res) => {
 })
 
 // GET route to fetch existing hourly reports for a date
-router.get('/:date', async (req, res) => {
+router.get('/:date', verifyToken, async (req, res) => {
   try {
     const { date } = req.params
+    const userId = req.user.id
+    const role = (req.user.role || '').toLowerCase()
+    const isManagerish = role.includes('manager') || role.includes('team leader') || role.includes('group leader')
 
-    const [rows] = await pool.execute(
-      `SELECT * FROM hourly_reports
-       WHERE report_date = ?
-       ORDER BY time_period`,
-      [date]
-    )
-
+    // Always return only the authenticated user's hourly reports
+    const [rows] = await pool.execute(`SELECT * FROM hourly_reports WHERE report_date = ? AND user_id = ? ORDER BY time_period`, [date, userId])
     res.json(rows)
   } catch (error) {
     console.error('Failed to fetch hourly reports', error)
@@ -43,7 +60,7 @@ router.get('/:date', async (req, res) => {
   }
 })
 
-router.post('/', async (req, res) => {
+router.post('/', verifyToken, async (req, res) => {
   try {
     const {
       reportDate,
@@ -70,14 +87,16 @@ router.post('/', async (req, res) => {
       })
     }
 
+    const userId = req.user.id
+
     const [result] = await pool.execute(
       `INSERT INTO hourly_reports 
        (report_date, time_period, project_name, daily_target, hourly_activity,
         problem_faced_by_engineer_hourly, problem_resolved_or_not, problem_occur_start_time,
         problem_resolved_end_time, online_support_required_for_which_problem,
         online_support_time, online_support_end_time, engineer_name_who_gives_online_support,
-        engineer_remark, project_incharge_remark)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        engineer_remark, project_incharge_remark, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         reportDate,
         timePeriod,
@@ -93,7 +112,8 @@ router.post('/', async (req, res) => {
         onlineSupportEndTime || null,
         engineerNameWhoGivesOnlineSupport || null,
         engineerRemark || null,
-        projectInchargeRemark || null
+        projectInchargeRemark || null,
+        userId
       ]
     )
 
@@ -108,7 +128,7 @@ router.post('/', async (req, res) => {
 })
 
 // PUT route to update existing hourly reports
-router.put('/:id', async (req, res) => {
+router.put('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params
     console.log('PUT hourly report request body:', req.body)
@@ -135,6 +155,18 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({
         message: 'Date, time period, project name, daily target, and hourly activity are required'
       })
+    }
+
+    const userId = req.user.id
+    const role = (req.user.role || '').toLowerCase()
+    const isManagerish = role.includes('manager') || role.includes('team leader') || role.includes('group leader')
+
+    // Ensure ownership unless manager
+    const [existing] = await pool.execute('SELECT user_id FROM hourly_reports WHERE id = ?', [id])
+    if (existing.length === 0) return res.status(404).json({ message: 'Hourly report not found' })
+    const ownerId = existing[0].user_id
+    if (!isManagerish && ownerId !== userId) {
+      return res.status(403).json({ message: 'Not authorized to update this hourly report' })
     }
 
     const [result] = await pool.execute(

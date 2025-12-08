@@ -251,12 +251,7 @@ function HourlyReportForm() {
     setSubmitting(true)
     setAlert(null)
 
-    // Validate required fields
-    if (!formData.locationType) {
-      setAlert({ type: 'error', message: 'Please select a location type' })
-      setSubmitting(false)
-      return
-    }
+    // No longer require `locationType` per-hour; daily target selection provides location when needed
 
     try {
       const now = new Date()

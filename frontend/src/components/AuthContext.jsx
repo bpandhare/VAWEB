@@ -12,7 +12,7 @@ export function AuthProvider({ children }) {
       try {
         const parsed = JSON.parse(saved)
         if (parsed.token && parsed.username) {
-          setUser({ username: parsed.username })
+          setUser({ username: parsed.username, role: parsed.role })
           setToken(parsed.token)
         }
       } catch {
@@ -23,7 +23,7 @@ export function AuthProvider({ children }) {
 
   const saveAuth = (auth) => {
     window.localStorage.setItem('vh-auth', JSON.stringify(auth))
-    setUser({ username: auth.username })
+    setUser({ username: auth.username, role: auth.role })
     setToken(auth.token)
   }
 
