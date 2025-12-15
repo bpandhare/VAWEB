@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import './OnboardingForm.css'
 import { useAuth } from './AuthContext'
 
+/* ---------- DEFAULT PAYLOAD ---------- */
 const defaultPayload = () => {
   const now = new Date()
   const date = now.toISOString().slice(0, 10)
@@ -17,15 +18,18 @@ const defaultPayload = () => {
     resolutionStatus: '',
     problemStart: '',
     problemEnd: '',
+    supportRequired: 'no',
     supportProblem: '',
     supportStart: '',
     supportEnd: '',
     supportEngineer: '',
+    supportContact: '',
     engineerRemark: '',
     inchargeRemark: '',
   }
 }
 
+/* ---------- TEXTAREA FIELDS ---------- */
 const textAreas = [
   { name: 'dailyTarget', label: 'Daily target planned by site engineer' },
   { name: 'hourlyActivity', label: 'Hourly activity' },
@@ -38,7 +42,7 @@ const textAreas = [
 
 function OnboardingForm() {
   const { token } = useAuth()
-  const [formData, setFormData] = useState(defaultPayload)
+  const [formData, setFormData] = useState(defaultPayload())
   const [submitting, setSubmitting] = useState(false)
   const [alert, setAlert] = useState(null)
 
@@ -47,18 +51,49 @@ function OnboardingForm() {
     []
   )
 
-  const handleChange = (event) => {
-    const { name, value } = event.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+  /* ---------- NORMAL INPUT HANDLER ---------- */
+  const handleChange = (e) => {
+    const { name, value } = e.target
+
+    setFormData((prev) => {
+      // If support = NO → clear dependent fields
+      if (name === 'supportRequired' && value === 'no') {
+        return {
+          ...prev,
+          supportRequired: 'no',
+          supportProblem: '',
+          supportStart: '',
+          supportEnd: '',
+          supportEngineer: '',
+          supportContact: '',
+        }
+      }
+
+      return { ...prev, [name]: value }
+    })
   }
 
-  const handleSubmit = async (event) => {
-    event.preventDefault()
+  /* ---------- DIGIT-ONLY CONTACT HANDLER ---------- */
+  const handleContactChange = (e) => {
+    const value = e.target.value
+
+    // Allow only digits (0–9), max 10
+    if (/^\d{0,10}$/.test(value)) {
+      setFormData((prev) => ({
+        ...prev,
+        supportContact: value,
+      }))
+    }
+  }
+
+  /* ---------- SUBMIT ---------- */
+  const handleSubmit = async (e) => {
+    e.preventDefault()
     setSubmitting(true)
     setAlert(null)
 
     try {
-      const response = await fetch(endpoint, {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,14 +102,12 @@ function OnboardingForm() {
         body: JSON.stringify(formData),
       })
 
-      if (!response.ok) {
-        throw new Error('Unable to save entry. Please retry.')
-      }
+      if (!res.ok) throw new Error('Unable to save entry')
 
-      setAlert({ type: 'success', message: 'Entry saved. Stay safe on site!' })
+      setAlert({ type: 'success', message: 'Entry saved successfully' })
       setFormData(defaultPayload())
-    } catch (error) {
-      setAlert({ type: 'error', message: error.message })
+    } catch (err) {
+      setAlert({ type: 'error', message: err.message })
     } finally {
       setSubmitting(false)
     }
@@ -83,29 +116,13 @@ function OnboardingForm() {
   return (
     <section className="vh-form-shell">
       <header className="vh-form-header">
-        <div>
-          <p className="vh-form-label">Employee onboarding log</p>
-          <h2>Capture today’s ground reality</h2>
-          <p>
-            Every submission creates a signed record in MySQL with timestamps,
-            so project leadership can respond faster.
-          </p>
-        </div>
-        <div className="vh-stats">
-          <div>
-            <span>Next sync</span>
-            <strong>Top of the hour</strong>
-          </div>
-          <div>
-            <span>Database</span>
-            <strong>Vickhardth Ops</strong>
-          </div>
-        </div>
+        <h2>Employee Onboarding Log</h2>
+        <p>Capture today’s ground reality</p>
       </header>
 
       {alert && (
         <div className={`vh-alert ${alert.type}`}>
-          <p>{alert.message}</p>
+          {alert.message}
         </div>
       )}
 
@@ -138,7 +155,6 @@ function OnboardingForm() {
             <input
               type="text"
               name="projectName"
-              placeholder="Eg. VH-Metro Phase 2 / VH-OPS-0215"
               value={formData.projectName}
               onChange={handleChange}
               required
@@ -146,7 +162,7 @@ function OnboardingForm() {
           </label>
 
           <label>
-            <span>Problem occur start time</span>
+            <span>Problem start time</span>
             <input
               type="time"
               name="problemStart"
@@ -156,7 +172,7 @@ function OnboardingForm() {
           </label>
 
           <label>
-            <span>Problem resolved end time</span>
+            <span>Problem end time</span>
             <input
               type="time"
               name="problemEnd"
@@ -165,36 +181,69 @@ function OnboardingForm() {
             />
           </label>
 
+          {/* SUPPORT REQUIRED */}
           <label>
-            <span>Online support start time</span>
+            <span>Online support required?</span>
+            <select
+              name="supportRequired"
+              value={formData.supportRequired}
+              onChange={handleChange}
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Support start time</span>
             <input
               type="time"
               name="supportStart"
               value={formData.supportStart}
               onChange={handleChange}
+              disabled={formData.supportRequired === 'no'}
             />
           </label>
 
           <label>
-            <span>Online support end time</span>
+            <span>Support end time</span>
             <input
               type="time"
               name="supportEnd"
               value={formData.supportEnd}
               onChange={handleChange}
+              disabled={formData.supportRequired === 'no'}
             />
           </label>
 
-          <label>
-            <span>Engineer name providing online support</span>
-            <input
-              type="text"
-              name="supportEngineer"
-              placeholder="Name & designation"
-              value={formData.supportEngineer}
-              onChange={handleChange}
-            />
-          </label>
+          {/* CONDITIONAL FIELDS */}
+          {formData.supportRequired === 'yes' && (
+            <>
+              <label>
+                <span>Support engineer name</span>
+                <input
+                  type="text"
+                  name="supportEngineer"
+                  value={formData.supportEngineer}
+                  onChange={handleChange}
+                  required
+                />
+              </label>
+
+              <label>
+                <span>Support engineer contact</span>
+                <input
+                  type="text"
+                  name="supportContact"
+                  value={formData.supportContact}
+                  onChange={handleContactChange}
+                  maxLength={10}
+                  placeholder="10-digit number"
+                  required
+                />
+              </label>
+            </>
+          )}
         </div>
 
         {textAreas.map((field) => (
@@ -202,25 +251,25 @@ function OnboardingForm() {
             <span>{field.label}</span>
             <textarea
               name={field.name}
-              rows={field.name === 'hourlyActivity' ? 4 : 3}
               value={formData[field.name]}
               onChange={handleChange}
-              placeholder="Describe briefly..."
+              rows={3}
             />
           </label>
         ))}
 
         <div className="vh-form-actions">
           <button type="submit" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Submit log'}
+            {submitting ? 'Saving…' : 'Submit'}
           </button>
+
           <button
             type="button"
             className="ghost"
             onClick={() => setFormData(defaultPayload())}
             disabled={submitting}
           >
-            Reset form
+            Reset
           </button>
         </div>
       </form>
@@ -229,4 +278,3 @@ function OnboardingForm() {
 }
 
 export default OnboardingForm
-

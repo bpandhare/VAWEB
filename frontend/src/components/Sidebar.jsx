@@ -2,17 +2,7 @@ import './Sidebar.css'
 import { useAuth } from './AuthContext'
 // sidebar doesn't manage MoM state; CreateMoM is a separate page
 
-const highlights = [
-  'Structured onboarding for field engineers',
-  'Live issue escalation with online support tracking',
-  'Project level accountability for Vickhardth operations',
-]
 
-const quickLinks = [
-  { label: 'Corporate site', href: 'https://vickhardth.com/' },
-  { label: 'Quality policy', href: 'https://vickhardth.com/quality/' },
-  { label: 'Contact PMO', href: 'mailto:pmo@vickhardth.com' },
-]
 
 function Sidebar({ currentPage, onPageChange }) {
   const { user } = useAuth()
@@ -22,9 +12,7 @@ function Sidebar({ currentPage, onPageChange }) {
     <aside className="vh-sidebar">
       <div className="vh-brand">
         <span className="vh-pill">VICKHARDTH</span>
-        <h1>
-          Site <span>Pulse</span>
-        </h1>
+       
         <p className="vh-tagline">Daily reporting hub for site engineers.</p>
       </div>
 
@@ -84,35 +72,10 @@ function Sidebar({ currentPage, onPageChange }) {
         </>
       )}
 
-      <section className="vh-highlight">
-        <h2>Why log here?</h2>
-        <ul>
-          {highlights.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </section>
+      
 
-      <section className="vh-quick-links">
-        <h2>Quick links</h2>
-        <ul>
-          {quickLinks.map((link) => (
-            <li key={link.label}>
-              <a href={link.href} target="_blank" rel="noreferrer">
-                {link.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="vh-meta">
-        <p>
-          Need help? Ping the PMO on Teams or request live assistance directly
-          through the form.
-        </p>
-        <small>Data syncs to MySQL for audit-ready records.</small>
-      </section>
+      
+      
     </aside>
   )
 }

@@ -2,338 +2,552 @@ import { useMemo, useState, useEffect } from 'react'
 import './OnboardingForm.css'
 import { useAuth } from './AuthContext'
 
-// Format date for backend (ensure YYYY-MM-DD format)
-const formatDateForBackend = (dateValue) => {
-  if (!dateValue) return new Date().toISOString().slice(0, 10)
-
-  // If it's already a string in YYYY-MM-DD format, return as is
-  if (typeof dateValue === 'string' && dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
-    return dateValue
-  }
-
-  // If it's a Date object or ISO string, extract the date part
-  const date = new Date(dateValue)
-  return date.toISOString().slice(0, 10)
+const getIndianTime = () => {
+  // Get current local time (assuming user's PC is set to IST)
+  const now = new Date()
+  // Format as HH:MM in 24-hour format
+  const hours = now.getHours().toString().padStart(2, '0')
+  const minutes = now.getMinutes().toString().padStart(2, '0')
+  return `${hours}:${minutes}`
 }
-
-// Generate time periods from 9am to 6pm
-const generateTimePeriods = () => {
-  const periods = []
-  for (let hour = 9; hour < 18; hour++) {
-    const startHour = hour > 12 ? hour - 12 : hour
-    const endHour = (hour + 1) > 12 ? (hour + 1) - 12 : (hour + 1)
-    const startAmpm = hour >= 12 ? 'pm' : 'am'
-    const endAmpm = (hour + 1) >= 12 ? 'pm' : 'am'
-    periods.push({
-      label: `${startHour}${startAmpm}-${endHour}${endAmpm}`,
-      startHour: hour,
-      endHour: hour + 1
-    })
-  }
-  return periods
-}
-
-// Check if current time is within allowed period for a specific hour
-const isWithinTimePeriod = (startHour, endHour, currentDate = new Date()) => {
-  const now = new Date(currentDate)
-  const currentHour = now.getHours()
-  const currentMinutes = now.getMinutes()
-
-  // Convert to 24-hour format for comparison
-  const periodStart = startHour
-  const periodEnd = endHour
-
-  // Check if current time is within the period
-  if (currentHour > periodStart && currentHour < periodEnd) return true
-  if (currentHour === periodStart && currentMinutes >= 0) return true
-  if (currentHour === periodEnd && currentMinutes === 0) return true
-
-  return false
-}
-
-
-const createHourlyEntry = () => ({
-  timePeriod: '',
-  hourlyActivity: '',
-  problemFacedByEngineerHourly: '',
-  problemResolvedOrNot: '',
-  problemOccurStartTime: '',
-  problemResolvedEndTime: '',
-  onlineSupportRequiredForWhichProblem: '',
-  onlineSupportTime: '',
-  onlineSupportEndTime: '',
-  engineerNameWhoGivesOnlineSupport: '',
-  engineerRemark: '',
-  projectInchargeRemark: '',
-})
 
 const defaultPayload = () => {
   const now = new Date()
-  const date = now.toISOString().slice(0, 10)
+  const inTime = getIndianTime()
+  const outTime = ''
+  const today = now.toISOString().slice(0, 10)
 
   return {
-    reportDate: date,
-    locationType: '',
-    projectName: '',
-    dailyTarget: '',
-    hourlyEntries: generateTimePeriods().map(period => ({
-      ...createHourlyEntry(),
-      timePeriod: period.label,
-      startHour: period.startHour,
-      endHour: period.endHour
-    }))
+    reportDate: today, // Date for this daily target report (for hourly report linking)
+    inTime: inTime,
+    outTime: outTime,
+    customerName: '',
+    customerPerson: '',
+    customerContact: '',
+    endCustomerName: '',
+    endCustomerPerson: '',
+    endCustomerContact: '',
+    projectNo: '',
+    locationType: '', // 'site', 'office', 'leave'
+    siteLocation: '',
+    locationLat: '',
+    locationLng: '',
+    momReport: null,
+    dailyTargetPlanned: '',
+    dailyTargetAchieved: '',
+    additionalActivity: '',
+    whoAddedActivity: '',
+    dailyPendingTarget: '',
+    reasonPendingTarget: '',
+    problemFaced: '',
+    problemResolved: '',
+    onlineSupportRequired: '',
+    supportEngineerName: '',
+    siteStartDate: today,
+    siteEndDate: '',
+    incharge: '',
+    remark: '',
   }
 }
 
-function HourlyReportForm() {
+function DailyTargetForm() {
   const { token } = useAuth()
   const [formData, setFormData] = useState(defaultPayload)
   const [submitting, setSubmitting] = useState(false)
   const [alert, setAlert] = useState(null)
-  const [dailyTargets, setDailyTargets] = useState([])
-  const [loadingTargets, setLoadingTargets] = useState(false)
-  const [currentActivePeriod, setCurrentActivePeriod] = useState(null)
-  const [existingReports, setExistingReports] = useState([])
-  const [editingReport, setEditingReport] = useState(null)
+  const [locationAccess, setLocationAccess] = useState(false)
+  const [locationError, setLocationError] = useState('')
+  const [submittedData, setSubmittedData] = useState(null)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [locationName, setLocationName] = useState('')
+  const [fetchingLocation, setFetchingLocation] = useState(false)
 
-  // Function to refresh existing reports
-  const refreshExistingReports = async () => {
+  const endpoint = useMemo(
+    () => import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/daily-target') ?? 'http://localhost:5000/api/daily-target',
+    []
+  )
+
+
+  // Get user's location when site location is selected
+  useEffect(() => {
     try {
-      const response = await fetch(`${endpoint}/${formData.reportDate}`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      })
-      if (response.ok) {
-        const reports = await response.json()
-        setExistingReports(reports)
+      if (formData.locationType === 'site') {
+        // Don't auto-fetch, let user click the button
+        setLocationAccess(false)
+        setLocationError('')
+      } else if (formData.locationType === 'leave') {
+        // Clear work-related fields for leave location
+        setLocationAccess(false)
+        setLocationError('')
+        setFormData((prev) => ({
+          ...prev,
+          inTime: '',
+          outTime: '',
+          customerName: '',
+          customerPerson: '',
+          customerContact: '',
+          endCustomerName: '',
+          endCustomerPerson: '',
+          endCustomerContact: '',
+          projectNo: '',
+          siteLocation: '',
+          locationLat: '',
+          locationLng: '',
+          momReport: null,
+          dailyTargetPlanned: '',
+          dailyTargetAchieved: '',
+          additionalActivity: '',
+          whoAddedActivity: '',
+          dailyPendingTarget: '',
+          reasonPendingTarget: '',
+          problemFaced: '',
+          problemResolved: '',
+          onlineSupportRequired: '',
+          supportEngineerName: '',
+          siteStartDate: '',
+          siteEndDate: '',
+          incharge: '',
+          remark: ''
+        }))
+
+        // Clear any form validation state when switching to leave
+        if (typeof document !== 'undefined') {
+          setTimeout(() => {
+            const form = document.querySelector('.vh-form')
+            if (form) {
+              const inputs = form.querySelectorAll('input, textarea, select')
+              inputs.forEach(input => {
+                input.setCustomValidity('')
+                // Force validation reset
+                input.checkValidity()
+              })
+              form.checkValidity()
+            }
+          }, 50)
+        }
+
+        setLocationName('')
+      } else {
+        // For office location, clear site-specific fields
+        setLocationAccess(false)
+        setLocationError('')
+        setFormData((prev) => ({ ...prev, siteLocation: '', locationLat: '', locationLng: '', momReport: null }))
+        setLocationName('')
       }
+
     } catch (error) {
-      console.error('Failed to refresh existing reports:', error)
+      console.error('Error handling location type change:', error)
+      setLocationError('Failed to update location settings')
+    }
+  }, [formData.locationType])
+
+  // Reverse geocode coordinates to get readable address with better accuracy
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      setFetchingLocation(true)
+      
+      // Try multiple geocoding services for better accuracy
+      let bestAddress = null
+      let addresses = []
+      
+      // Method 1: Try Google Maps Geocoding API first (most accurate for Indian addresses)
+      const googleApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+      if (googleApiKey) {
+        try {
+          const response = await fetch(
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${googleApiKey}&language=en&region=in&result_type=street_address|premise|subpremise|neighborhood|locality|sublocality`
+          )
+          
+          if (response.ok) {
+            const data = await response.json()
+            if (data && data.status === 'OK' && data.results && data.results.length > 0) {
+              // Try to find the most specific result
+              let specificResult = data.results.find(r => 
+                r.types.includes('street_address') || 
+                r.types.includes('premise') || 
+                r.types.includes('subpremise')
+              )
+              
+              // If not found, try neighborhood or sublocality (for places like "M Phulenagar")
+              if (!specificResult) {
+                specificResult = data.results.find(r => 
+                  r.types.includes('neighborhood') || 
+                  r.types.includes('sublocality') ||
+                  r.types.includes('sublocality_level_1')
+                )
+              }
+              
+              // Fallback to locality
+              if (!specificResult) {
+                specificResult = data.results.find(r => r.types.includes('locality'))
+              }
+              
+              // Final fallback to first result
+              if (!specificResult) {
+                specificResult = data.results[0]
+              }
+              
+              if (specificResult && specificResult.formatted_address) {
+                // Google Maps API result is most accurate, use it immediately
+                bestAddress = specificResult.formatted_address
+                setLocationName(bestAddress)
+                return bestAddress
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('Google Geocoding API failed:', error)
+        }
+      }
+      
+      // Method 2: Try OpenStreetMap Nominatim with multiple zoom levels and different parameters
+      const zoomLevels = [18, 16, 14, 12] // Try most detailed first
+      for (const zoom of zoomLevels) {
+        try {
+          // Try with different parameters
+          const urls = [
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&extratags=1&namedetails=1&accept-language=en`,
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&extratags=1&accept-language=en-IN`,
+          ]
+          
+          for (const url of urls) {
+            const response = await fetch(url, {
+              headers: {
+                'User-Agent': 'Vickhardth Site Pulse App',
+                'Accept-Language': 'en,en-IN',
+              },
+            })
+            
+            if (response.ok) {
+              const data = await response.json()
+              if (data) {
+                // Try to extract the most specific address
+                if (data.address) {
+                  const addr = data.address
+                  let addressParts = []
+                  
+              // Prioritize most specific location identifiers for Indian addresses
+              // Order matters - most specific first
+              
+              // 1. Locality/Neighbourhood (most specific - like "M Phulenagar")
+              if (addr.locality) addressParts.push(addr.locality)
+              else if (addr.neighbourhood) addressParts.push(addr.neighbourhood)
+              else if (addr.suburb) addressParts.push(addr.suburb)
+              else if (addr.quarter) addressParts.push(addr.quarter)
+              else if (addr.residential) addressParts.push(addr.residential)
+              else if (addr.hamlet) addressParts.push(addr.hamlet)
+              
+              // 2. Park/Place name (like "Jijamata Park")
+              if (addr.leisure) addressParts.push(addr.leisure)
+              if (addr.amenity) addressParts.push(addr.amenity)
+              if (addr.place) addressParts.push(addr.place)
+              
+              // 3. Road/Street
+              if (addr.road) addressParts.push(addr.road)
+              else if (addr.street) addressParts.push(addr.street)
+              else if (addr.pedestrian) addressParts.push(addr.pedestrian)
+              else if (addr.footway) addressParts.push(addr.footway)
+              else if (addr.path) addressParts.push(addr.path)
+              
+              // 4. City/Town (like "Chinchwad")
+              if (addr.city) addressParts.push(addr.city)
+              else if (addr.town) addressParts.push(addr.town)
+              else if (addr.village) addressParts.push(addr.village)
+              else if (addr.municipality) addressParts.push(addr.municipality)
+              
+              // 5. Larger area (like "Pimpri-Chinchwad")
+              if (addr.city_district) addressParts.push(addr.city_district)
+              
+              // 6. District/County
+              if (addr.district) addressParts.push(addr.district)
+              else if (addr.county) addressParts.push(addr.county)
+              
+              // 7. Postcode
+              if (addr.postcode) addressParts.push(addr.postcode)
+              
+              // 8. State
+              if (addr.state) addressParts.push(addr.state)
+                  
+                  if (addressParts.length > 0) {
+                    const constructedAddress = addressParts.join(', ')
+                    addresses.push(constructedAddress)
+                  }
+                }
+                
+                // Also collect display_name as alternative
+                if (data.display_name) {
+                  addresses.push(data.display_name)
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`Nominatim API failed for zoom ${zoom}:`, error)
+          continue
+        }
+      }
+      
+      // Method 3: Try MapBox if available (optional)
+      const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN
+      if (mapboxToken && !bestAddress) {
+        try {
+          const response = await fetch(
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${mapboxToken}&types=address,poi,neighborhood,locality`
+          )
+          
+          if (response.ok) {
+            const data = await response.json()
+            if (data && data.features && data.features.length > 0) {
+              const feature = data.features[0]
+              if (feature.place_name) {
+                addresses.push(feature.place_name)
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('MapBox API failed:', error)
+        }
+      }
+      
+      // Find the best address - prioritize addresses that contain more specific terms
+      if (addresses.length > 0) {
+        // Score addresses based on specificity (prefer addresses with more components)
+        const scoredAddresses = addresses.map(addr => ({
+          address: addr,
+          score: addr.split(',').length + (addr.match(/park|nagar|chinchwad|pimpri/i) ? 10 : 0)
+        }))
+        
+        // Sort by score (highest first)
+        scoredAddresses.sort((a, b) => b.score - a.score)
+        bestAddress = scoredAddresses[0].address
+      }
+      
+      // If we got an address, use it
+      if (bestAddress) {
+        setLocationName(bestAddress)
+        return bestAddress
+      }
+      
+      // Final fallback: coordinates
+      const formattedCoords = `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+      setLocationName(formattedCoords)
+      return formattedCoords
+    } catch (error) {
+      console.error('Reverse geocoding error:', error)
+      const fallback = `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+      setLocationName(fallback)
+      return fallback
+    } finally {
+      setFetchingLocation(false)
     }
   }
 
-  // Update active period every minute
-  useEffect(() => {
-    const updateActivePeriod = () => {
-      const now = new Date()
-      const activePeriod = generateTimePeriods().find(period =>
-        isWithinTimePeriod(period.startHour, period.endHour, now)
-      )
-      setCurrentActivePeriod(activePeriod ? activePeriod.label : null)
+  const getCurrentLocation = async () => {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by your browser')
+      return
     }
 
-    updateActivePeriod()
-    const interval = setInterval(updateActivePeriod, 60000) // Check every minute
-    return () => clearInterval(interval)
-  }, [])
-
-  const endpoint = useMemo(
-    () => import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/hourly-report') ?? 'http://localhost:5000/api/hourly-report',
-    []
-  )
-
-  const dailyTargetsEndpoint = useMemo(
-    () => import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/hourly-report/daily-targets') ?? 'http://localhost:5000/api/hourly-report/daily-targets',
-    []
-  )
-
-  // Auto-fetch daily targets when date changes
-  useEffect(() => {
-    const fetchDailyTargets = async () => {
-      if (!formData.reportDate) return
-
-      setLoadingTargets(true)
-      try {
-        const response = await fetch(`${dailyTargetsEndpoint}/${formData.reportDate}`, {
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        })
-
-        if (response.ok) {
-          const targets = await response.json()
-          setDailyTargets(targets)
-
-          // Auto-fill the first available target only if fields are empty
-          if (targets.length > 0 && !formData.projectName && !formData.dailyTarget) {
-            setFormData(prev => ({
+    setLocationError('')
+    setFetchingLocation(true)
+    
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const lat = position.coords.latitude
+          const lng = position.coords.longitude
+          
+          // Store coordinates first
+          setFormData((prev) => ({
+            ...prev,
+            locationLat: lat.toString(),
+            locationLng: lng.toString(),
+            siteLocation: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, // Set coordinates as fallback
+          }))
+          
+          setLocationAccess(true)
+          
+          // Get readable address (this will update siteLocation if successful)
+          const address = await reverseGeocode(lat, lng)
+          
+          // Update with the address if we got one
+          if (address && address !== `${lat.toFixed(6)}, ${lng.toFixed(6)}`) {
+            setFormData((prev) => ({
               ...prev,
-              projectName: targets[0].project_no,
-              dailyTarget: targets[0].daily_target_planned
+              siteLocation: address,
             }))
           }
+        } catch (error) {
+          console.error('Error processing location:', error)
+          setLocationError('Location captured but address lookup failed. Coordinates saved.')
         }
-      } catch (error) {
-        console.error('Failed to fetch daily targets:', error)
-      } finally {
-        setLoadingTargets(false)
-      }
-    }
-
-    fetchDailyTargets()
-
-    // Also fetch existing hourly reports for this date
-    const fetchExistingReports = async () => {
-      try {
-        const response = await fetch(`${endpoint}/${formData.reportDate}`, {
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        })
-
-        if (response.ok) {
-          const reports = await response.json()
-          setExistingReports(reports)
+      },
+      (error) => {
+        setLocationAccess(false)
+        setFetchingLocation(false)
+        let errorMessage = 'Location access denied or unavailable. Please enable location services.'
+        
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = 'Location access denied. Please allow location access in your browser settings.'
+            break
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = 'Location information is unavailable. Please check your device settings.'
+            break
+          case error.TIMEOUT:
+            errorMessage = 'Location request timed out. Please try again.'
+            break
         }
-      } catch (error) {
-        console.error('Failed to fetch existing reports:', error)
+        
+        setLocationError(errorMessage)
+        setFormData((prev) => ({ ...prev, siteLocation: '', locationLat: '', locationLng: '' }))
+        setLocationName('')
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
       }
-    }
-
-    fetchExistingReports()
-  }, [formData.reportDate, dailyTargetsEndpoint, token, formData.projectName, formData.dailyTarget, endpoint])
+    )
+  }
 
   const handleChange = (event) => {
-    const { name, value } = event.target
+    const { name, value, type, files } = event.target
+
+    // File handling unchanged
+    if (type === 'file') {
+      setFormData((prev) => ({ ...prev, [name]: files[0] || null }))
+      return
+    }
+
+    // Always store contact numbers as digits-only
+    if (name === 'customerContact' || name === 'endCustomerContact') {
+      const digits = (value ?? '').toString().replace(/\D/g, '')
+      setFormData((prev) => ({ ...prev, [name]: digits }))
+      return
+    }
+
+    // If online support flag changes, clear engineer name when it's "No"
+    if (name === 'onlineSupportRequired') {
+      const v = value
+      setFormData((prev) => ({
+        ...prev,
+        onlineSupportRequired: v,
+        supportEngineerName: v === 'Yes' ? prev.supportEngineerName : '',
+      }))
+      return
+    }
+
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleHourlyEntryChange = (index, field, value) => {
-    setFormData((prev) => ({
-      ...prev,
-      hourlyEntries: prev.hourlyEntries.map((entry, i) =>
-        i === index ? { ...entry, [field]: value } : entry
-      )
-    }))
+  const handleInTimeAuto = () => {
+    const inTime = getIndianTime()
+    setFormData((prev) => ({ ...prev, inTime }))
   }
 
-  const handleDailyTargetSelect = (event) => {
-    const selectedId = event.target.value
-    const selectedTarget = dailyTargets.find(target => target.id.toString() === selectedId)
-
-    if (selectedTarget) {
-      setFormData(prev => ({
-        ...prev,
-        locationType: selectedTarget.location_type || '',
-        projectName: selectedTarget.project_no,
-        dailyTarget: selectedTarget.daily_target_planned
-      }))
-    }
+  const handleOutTimeAuto = () => {
+    const outTime = getIndianTime()
+    setFormData((prev) => ({ ...prev, outTime }))
   }
 
-  const validateHourlyEntry = (entry) => {
-    const errors = []
+  const handleSubmit = async () => {
+    console.log('=== FORM SUBMISSION STARTED ===')
+    console.log('Location type:', formData.locationType)
+    console.log('Form data:', formData)
+    console.log('Remark field:', formData.remark)
+    console.log('Remark trimmed:', formData.remark?.trim())
+    console.log('Remark exists:', !!(formData.remark?.trim()))
 
-    // Check if hourly activity is filled
-    if (!entry.hourlyActivity.trim()) {
-      return errors // Skip validation if no activity entered
-    }
-
-    // If problem occurred is Yes, validate related fields
-    if (entry.problemResolvedOrNot === 'Yes') {
-      if (!entry.problemOccurStartTime) {
-        errors.push('Problem occur start time is required when problem occurred')
-      }
-      if (!entry.problemResolvedEndTime) {
-        errors.push('Problem resolved end time is required when problem occurred')
-      }
-      if (entry.onlineSupportRequiredForWhichProblem && (!entry.onlineSupportTime || !entry.onlineSupportEndTime || !entry.engineerNameWhoGivesOnlineSupport)) {
-        errors.push('Online support details are required when support is requested')
-      }
-    }
-
-    return errors
-  }
-
-  const handleSubmit = async (event) => {
-    event.preventDefault()
     setSubmitting(true)
     setAlert(null)
 
-    // No longer require `locationType` per-hour; daily target selection provides location when needed
+    // Validate PDF upload for site location (skip for edits with existing location data)
+    if (formData.locationType === 'site' && !locationAccess && !(isEditMode && formData.locationLat && formData.locationLng)) {
+      setAlert({ type: 'error', message: 'Please allow location access to upload MOM report' })
+      setSubmitting(false)
+      return
+    }
+
+    // For leave location, no fields are required (remark is optional)
+    if (formData.locationType === 'leave') {
+      console.log('Leave location selected - no validation required')
+      // No validation needed for leave location
+    } else {
+      // For office/site locations, require all work-related fields
+      const requiredFields = [
+        'reportDate', 'inTime', 'outTime', 'customerName', 'customerPerson', 'customerContact',
+        'endCustomerName', 'endCustomerPerson', 'endCustomerContact', 'projectNo', 'locationType',
+        'dailyTargetPlanned', 'dailyTargetAchieved', 'incharge'
+      ]
+
+      if (formData.locationType === 'site') {
+        requiredFields.push('siteStartDate')
+      }
+
+      const missingFields = requiredFields.filter(field => !formData[field])
+
+      if (missingFields.length > 0) {
+        setAlert({ type: 'error', message: `Please fill in all required fields: ${missingFields.join(', ')}` })
+        setSubmitting(false)
+        return
+      }
+    }
 
     try {
-      const now = new Date()
-      let submittedCount = 0
-      const validationErrors = []
+      const formDataToSend = new FormData()
 
-      // Validate and submit each hourly entry (only new ones, skip existing)
-      const submitPromises = formData.hourlyEntries.map((entry) => {
-        // Only submit entries that have hourly activity filled
-        if (!entry.hourlyActivity.trim()) return Promise.resolve()
-
-        // Check if this time period already has a report
-        const existingReport = existingReports.find(report => report.time_period === entry.timePeriod)
-        if (existingReport) {
-          validationErrors.push(`${entry.timePeriod}: Report already exists. Use Edit button to update.`)
-          return Promise.resolve()
+      // Add all form fields
+      Object.keys(formData).forEach((key) => {
+        if (key === 'momReport' && formData.momReport) {
+          formDataToSend.append('momReport', formData.momReport)
+        } else if (key !== 'momReport') {
+          formDataToSend.append(key, formData[key] || '')
         }
-
-        // Validate time restrictions
-        if (!isWithinTimePeriod(entry.startHour, entry.endHour, now)) {
-          validationErrors.push(`${entry.timePeriod}: Can only submit reports within the allocated time period`)
-          return Promise.resolve()
-        }
-
-        // Validate conditional fields
-        const entryErrors = validateHourlyEntry(entry)
-        if (entryErrors.length > 0) {
-          validationErrors.push(`${entry.timePeriod}: ${entryErrors.join(', ')}`)
-          return Promise.resolve()
-        }
-
-        submittedCount++
-
-        const payload = {
-          reportDate: formData.reportDate,
-          locationType: formData.locationType,
-          timePeriod: entry.timePeriod,
-          projectName: formData.projectName,
-          dailyTarget: formData.dailyTarget,
-          hourlyActivity: entry.hourlyActivity,
-          problemFacedByEngineerHourly: entry.problemFacedByEngineerHourly,
-          problemResolvedOrNot: entry.problemResolvedOrNot,
-          problemOccurStartTime: entry.problemOccurStartTime,
-          problemResolvedEndTime: entry.problemResolvedEndTime,
-          onlineSupportRequiredForWhichProblem: entry.onlineSupportRequiredForWhichProblem,
-          onlineSupportTime: entry.onlineSupportTime,
-          onlineSupportEndTime: entry.onlineSupportEndTime,
-          engineerNameWhoGivesOnlineSupport: entry.engineerNameWhoGivesOnlineSupport,
-          engineerRemark: entry.engineerRemark,
-          projectInchargeRemark: entry.projectInchargeRemark
-        }
-
-        return fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(payload),
-        })
       })
 
-      // If there are validation errors, don't submit
-      if (validationErrors.length > 0) {
-        throw new Error(`Validation errors:\n${validationErrors.join('\n')}`)
-      }
-
-      const responses = await Promise.all(submitPromises)
-      const failedCount = responses.filter(response => response && !response.ok).length
-
-      if (failedCount > 0) {
-        throw new Error(`Failed to save ${failedCount} hourly report(s). Please retry.`)
-      }
-
-      setAlert({
-        type: 'success',
-        message: `${submittedCount} hourly report(s) saved successfully!`
+      const updateEndpoint = isEditMode ? `${endpoint}/${submittedData.id}` : endpoint
+      const response = await fetch(updateEndpoint, {
+        method: isEditMode ? 'PUT' : 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formDataToSend,
       })
 
-      // Refresh existing reports and reset form
-      await refreshExistingReports()
-      setFormData(defaultPayload())
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Unable to save daily target report. Please retry.' }))
+        throw new Error(errorData.message || 'Unable to save daily target report. Please retry.')
+      }
+
+      const responseData = await response.json()
+
+      // Store submitted data to show on page
+      const submittedFormData = {
+        ...formData,
+        id: isEditMode ? submittedData.id : responseData.id,
+        submittedAt: isEditMode ? submittedData.submittedAt : new Date().toISOString(),
+        momReportName: formData.momReport ? formData.momReport.name : (isEditMode ? submittedData.momReportName : null),
+        locationName: locationName || formData.siteLocation || '',
+      }
+      setSubmittedData(submittedFormData)
+      setIsEditMode(false)
+      
+      setAlert({ type: 'success', message: isEditMode ? 'Report updated successfully!' : 'Daily target report saved successfully! You can now view and edit it below.' })
+      
+      // Reset form for new entry
+      const newFormData = defaultPayload()
+      setFormData(newFormData)
+      setLocationAccess(false)
+      setLocationError('')
+
+      // Reset file input
+      setTimeout(() => {
+        const fileInput = document.querySelector('input[name="momReport"]')
+        if (fileInput) {
+          fileInput.value = ''
+        }
+      }, 100)
     } catch (error) {
       setAlert({ type: 'error', message: error.message })
     } finally {
@@ -341,14 +555,16 @@ function HourlyReportForm() {
     }
   }
 
+  const canUploadPDF = formData.locationType === 'site' && locationAccess
+
   return (
     <section className="vh-form-shell">
       <header className="vh-form-header">
         <div>
-          <p className="vh-form-label">Hourly Activity Report</p>
-          <h2>Log your hourly activities (9am - 6pm)</h2>
+          <p className="vh-form-label">Daily Target Report</p>
+          <h2>Record your daily targets</h2>
           <p>
-            Record your activities for each hour of the working day. Project details will be auto-fetched from daily target reports.
+            Track your in/out times, customer information, site activities, and daily targets.
           </p>
         </div>
       </header>
@@ -359,331 +575,262 @@ function HourlyReportForm() {
         </div>
       )}
 
-      {/* Display existing hourly reports */}
-      {existingReports.length > 0 && (
-        <div style={{ marginBottom: '2rem' }}>
-          <h3 style={{ color: '#092544', marginBottom: '1rem' }}>Submitted Hourly Reports</h3>
-          <div style={{ display: 'grid', gap: '1rem' }}>
-            {existingReports.map((report) => {
-              const isEditable = report.time_period === currentActivePeriod || !currentActivePeriod
-              return (
-                <div
-                  key={report.id}
-                  style={{
-                    border: '1px solid #d5e0f2',
-                    borderRadius: '12px',
-                    padding: '1rem',
-                    background: isEditable ? '#f0f9ff' : '#f9f9f9',
-                    opacity: isEditable ? 1 : 0.7
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                    <h4 style={{ margin: 0, color: '#092544' }}>
-                      {report.time_period}
-                      {report.time_period === currentActivePeriod && (
-                        <span style={{
-                          background: '#2ad1ff',
-                          color: 'white',
-                          padding: '0.25rem 0.5rem',
-                          borderRadius: '12px',
-                          fontSize: '0.8rem',
-                          marginLeft: '0.5rem'
-                        }}>
-                          ACTIVE
-                        </span>
-                      )}
-                    </h4>
-                    {isEditable && (
-                      <button
-                        type="button"
-                        onClick={() => setEditingReport(report)}
-                        style={{
-                          padding: '0.5rem 1rem',
-                          background: '#2ad1ff',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          fontSize: '0.9rem',
-                        }}
-                      >
-                        Edit
-                      </button>
-                    )}
-                  </div>
-                  <div style={{ fontSize: '0.9rem', color: '#4a5972' }}>
-                    <p style={{ margin: '0.25rem 0' }}><strong>Location:</strong> {(report.location_type || report.locationType) ? (report.location_type || report.locationType).charAt(0).toUpperCase() + (report.location_type || report.locationType).slice(1) : 'N/A'}</p>
-                    <p style={{ margin: '0.25rem 0' }}><strong>Activity:</strong> {report.hourly_activity}</p>
-                    {report.problem_faced_by_engineer_hourly && (
-                      <p style={{ margin: '0.25rem 0' }}><strong>Problem:</strong> {report.problem_faced_by_engineer_hourly}</p>
-                    )}
-                    {report.problem_resolved_or_not && (
-                      <p style={{ margin: '0.25rem 0' }}><strong>Resolved:</strong> {report.problem_resolved_or_not}</p>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Edit form for selected report */}
-      {editingReport && (
-        <div style={{
-          border: '2px solid #2ad1ff',
-          borderRadius: '12px',
-          padding: '1.5rem',
-          marginBottom: '2rem',
-          background: '#f0f9ff'
+      {submittedData && !isEditMode && (
+        <div style={{ 
+          background: '#f0f9ff', 
+          border: '1px solid #2ad1ff', 
+          borderRadius: '16px', 
+          padding: '1.5rem', 
+          marginBottom: '1.5rem',
+          maxHeight: '80vh',
+          overflowY: 'auto'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h3 style={{ margin: 0, color: '#092544' }}>
-              Edit Report: {editingReport.time_period}
-            </h3>
-            <button
-              type="button"
-              onClick={() => setEditingReport(null)}
-              style={{
-                padding: '0.5rem 1rem',
-                background: '#f5f5f5',
-                color: '#092544',
-                border: '1px solid #d5e0f2',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontSize: '0.9rem',
-              }}
-            >
-              Cancel Edit
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', position: 'sticky', top: 0, background: '#f0f9ff', zIndex: 1, paddingBottom: '0.5rem', borderBottom: '1px solid #2ad1ff' }}>
+            <h3 style={{ margin: 0, color: '#092544' }}>Submitted Report #{submittedData.id}</h3>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  // Create a copy of submitted data for editing
+                  const editData = { ...submittedData }
+                  // Remove the momReportName as we'll need to re-upload if changed
+                  delete editData.momReportName
+                  delete editData.id
+
+                  delete editData.submittedAt
+                  delete editData.locationName
+                  // Ensure reportDate is set (use existing or current date)
+                  if (!editData.reportDate) {
+                    editData.reportDate = new Date().toISOString().slice(0, 10)
+                  }
+                  setFormData(editData)
+                  setIsEditMode(true)
+                  if (editData.locationType === 'site' && editData.locationLat && editData.locationLng) {
+                    setLocationAccess(true)
+                    setLocationError('')
+                    // Restore location name from submitted data or use siteLocation
+                    const restoredLocationName = submittedData.locationName || editData.siteLocation || ''
+                    setLocationName(restoredLocationName)
+                    // If we have coordinates but no readable address, try to fetch it
+                    if (editData.locationLat && editData.locationLng && !restoredLocationName.includes('Location:')) {
+                      const lat = parseFloat(editData.locationLat)
+                      const lng = parseFloat(editData.locationLng)
+                      if (!isNaN(lat) && !isNaN(lng)) {
+                        reverseGeocode(lat, lng).then((address) => {
+                          if (address && address !== `${lat.toFixed(6)}, ${lng.toFixed(6)}`) {
+                            setFormData((prev) => ({
+                              ...prev,
+                              siteLocation: address,
+                            }))
+                          }
+                        })
+                      }
+                    }
+                  }
+                }}
+                
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: '#2ad1ff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSubmittedData(null)
+                  setIsEditMode(false)
+                }}
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: '#f5f5f5',
+                  color: '#092544',
+                  border: '1px solid #d5e0f2',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                }}
+              >
+                Close
+              </button>
+            </div>
           </div>
+          
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, 1fr)',
+            gap: '1rem',
+            fontSize: '0.9rem',
+            color: '#4a5972'
+          }}>
+            <div><strong>Location Type:</strong> {submittedData.locationType ? submittedData.locationType.charAt(0).toUpperCase() + submittedData.locationType.slice(1) : 'N/A'}</div>
+            <div></div>
 
-          <div className="vh-grid">
-            <label className="vh-span-2">
-              <span>Location Type</span>
-              <select
-                value={editingReport.location_type || editingReport.locationType || ''}
-                onChange={(e) => setEditingReport({...editingReport, location_type: e.target.value})}
-                required
-              >
-                <option value="">Select location type</option>
-                <option value="site">Site Location</option>
-                <option value="office">Office</option>
-                <option value="leave">Leave</option>
-              </select>
-            </label>
-
-            <label className="vh-span-2">
-              <span>Hourly Activity *</span>
-              <textarea
-                rows={3}
-                value={editingReport.hourly_activity || ''}
-                onChange={(e) => setEditingReport({...editingReport, hourly_activity: e.target.value})}
-                placeholder="Describe your activities during this hour..."
-                required
-              />
-            </label>
-
-            <label className="vh-span-2">
-              <span>Problem Faced by Engineer (Hourly)</span>
-              <textarea
-                rows={2}
-                value={editingReport.problem_faced_by_engineer_hourly || ''}
-                onChange={(e) => setEditingReport({...editingReport, problem_faced_by_engineer_hourly: e.target.value})}
-                placeholder="Describe any problems faced during this hour..."
-              />
-            </label>
-
-            <label>
-              <span>Problem Resolved or Not</span>
-              <select
-                value={editingReport.problem_resolved_or_not || ''}
-                onChange={(e) => setEditingReport({...editingReport, problem_resolved_or_not: e.target.value})}
-              >
-                <option value="">Select</option>
-                <option value="Yes">Yes</option>
-                <option value="No">No</option>
-              </select>
-            </label>
-
-            {editingReport.problem_resolved_or_not === 'Yes' && (
+            {submittedData.locationType !== 'leave' && (
               <>
-                <label>
-                  <span>Problem Occur Start Time *</span>
-                  <input
-                    type="time"
-                    value={editingReport.problem_occur_start_time || ''}
-                    onChange={(e) => setEditingReport({...editingReport, problem_occur_start_time: e.target.value})}
-                    required
-                  />
-                </label>
+                <div><strong>In Time:</strong> {submittedData.inTime || 'N/A'}</div>
+                <div><strong>Out Time:</strong> {submittedData.outTime || 'N/A'}</div>
 
-                <label>
-                  <span>Problem Resolved End Time *</span>
-                  <input
-                    type="time"
-                    value={editingReport.problem_resolved_end_time || ''}
-                    onChange={(e) => setEditingReport({...editingReport, problem_resolved_end_time: e.target.value})}
-                    required
-                  />
-                </label>
+                <div className="vh-span-2" style={{ gridColumn: 'span 2', borderTop: '1px solid #d5e0f2', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                  <strong>Customer Information:</strong>
+                </div>
+                <div><strong>Customer Name:</strong> {submittedData.customerName || 'N/A'}</div>
+                <div><strong>Customer Person:</strong> {submittedData.customerPerson || 'N/A'}</div>
+                <div><strong>Customer Contact:</strong> {submittedData.customerContact || 'N/A'}</div>
+              </>
+            )}
 
-                <label className="vh-span-2">
-                  <span>Online Support Required for Which Problem</span>
-                  <textarea
-                    rows={2}
-                    value={editingReport.online_support_required_for_which_problem || ''}
-                    onChange={(e) => setEditingReport({...editingReport, online_support_required_for_which_problem: e.target.value})}
-                    placeholder="Describe which problem required online support..."
-                  />
-                </label>
+            {submittedData.locationType !== 'leave' && (
+              <>
+                <div className="vh-span-2" style={{ gridColumn: 'span 2', borderTop: '1px solid #d5e0f2', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                  <strong>End Customer Information:</strong>
+                </div>
+                <div><strong>End Customer Name:</strong> {submittedData.endCustomerName || 'N/A'}</div>
+                <div><strong>End Customer Person:</strong> {submittedData.endCustomerPerson || 'N/A'}</div>
+                <div><strong>End Customer Contact:</strong> {submittedData.endCustomerContact || 'N/A'}</div>
 
-                {editingReport.online_support_required_for_which_problem && (
-                  <>
-                    <label>
-                      <span>Online Support Time *</span>
-                      <input
-                        type="time"
-                        value={editingReport.online_support_time || ''}
-                        onChange={(e) => setEditingReport({...editingReport, online_support_time: e.target.value})}
-                        required
-                      />
-                    </label>
-
-                    <label>
-                      <span>Online Support End Time *</span>
-                      <input
-                        type="time"
-                        value={editingReport.online_support_end_time || ''}
-                        onChange={(e) => setEditingReport({...editingReport, online_support_end_time: e.target.value})}
-                        required
-                      />
-                    </label>
-
-                    <label className="vh-span-2">
-                      <span>Engineer Name Who Gives Online Support *</span>
-                      <input
-                        type="text"
-                        value={editingReport.engineer_name_who_gives_online_support || ''}
-                        onChange={(e) => setEditingReport({...editingReport, engineer_name_who_gives_online_support: e.target.value})}
-                        placeholder="Enter engineer name providing support"
-                        required
-                      />
-                    </label>
-                  </>
+                <div className="vh-span-2" style={{ gridColumn: 'span 2', borderTop: '1px solid #d5e0f2', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                  <strong>Project & Location:</strong>
+                </div>
+                <div><strong>Project No./Name:</strong> {submittedData.projectNo || 'N/A'}</div>
+              </>
+            )}
+            {submittedData.locationType === 'site' && (
+              <>
+                <div className="vh-span-2" style={{ gridColumn: 'span 2' }}>
+                  <strong>Site Location:</strong> {submittedData.locationName || submittedData.siteLocation || 'N/A'}
+                </div>
+                {submittedData.locationLat && submittedData.locationLng && (
+                  <div className="vh-span-2" style={{ gridColumn: 'span 2', fontSize: '0.85rem', color: '#8892aa' }}>
+                    Coordinates: {submittedData.locationLat}, {submittedData.locationLng}
+                  </div>
                 )}
               </>
             )}
 
-            <label className="vh-span-2">
-              <span>Engineer Remark</span>
-              <textarea
-                rows={2}
-                value={editingReport.engineer_remark || ''}
-                onChange={(e) => setEditingReport({...editingReport, engineer_remark: e.target.value})}
-                placeholder="Additional remarks from engineer..."
-              />
-            </label>
+            {submittedData.locationType !== 'leave' && (
+              <>
+                {submittedData.momReportName && (
+                  <div className="vh-span-2" style={{ gridColumn: 'span 2' }}>
+                    <strong>MOM Report:</strong> {submittedData.momReportName}
+                  </div>
+                )}
 
-            <label className="vh-span-2">
-              <span>Project Incharge Remark</span>
-              <textarea
-                rows={2}
-                value={editingReport.project_incharge_remark || ''}
-                onChange={(e) => setEditingReport({...editingReport, project_incharge_remark: e.target.value})}
-                placeholder="Remarks from project incharge..."
-              />
-            </label>
-          </div>
+                <div className="vh-span-2" style={{ gridColumn: 'span 2', borderTop: '1px solid #d5e0f2', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                  <strong>Daily Targets:</strong>
+                </div>
+                <div className="vh-span-2" style={{ gridColumn: 'span 2' }}>
+                  <strong>Daily Target Planned by Site Engineer:</strong>
+                  <p style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', background: 'white', padding: '0.75rem', borderRadius: '8px' }}>
+                    {submittedData.dailyTargetPlanned || 'N/A'}
+                  </p>
+                </div>
+                <div className="vh-span-2" style={{ gridColumn: 'span 2' }}>
+                  <strong>Daily Target Achieved by Engineer:</strong>
+                  <p style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', background: 'white', padding: '0.75rem', borderRadius: '8px' }}>
+                    {submittedData.dailyTargetAchieved || 'N/A'}
+                  </p>
+                </div>
+                {submittedData.additionalActivity && (
+                  <div className="vh-span-2" style={{ gridColumn: 'span 2' }}>
+                    <strong>Additional Activity Added by Customer/End Customer:</strong>
+                    <p style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', background: 'white', padding: '0.75rem', borderRadius: '8px' }}>
+                      {submittedData.additionalActivity}
+                    </p>
+                  </div>
+                )}
+                {submittedData.whoAddedActivity && (
+                  <div><strong>Who Added This Extra Activity:</strong> {submittedData.whoAddedActivity}</div>
+                )}
+                {submittedData.dailyPendingTarget && (
+                  <div className="vh-span-2" style={{ gridColumn: 'span 2' }}>
+                    <strong>Daily Pending Target:</strong>
+                    <p style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', background: 'white', padding: '0.75rem', borderRadius: '8px' }}>
+                      {submittedData.dailyPendingTarget}
+                    </p>
+                  </div>
+                )}
+                {submittedData.reasonPendingTarget && (
+                  <div className="vh-span-2" style={{ gridColumn: 'span 2' }}>
+                    <strong>Reason for Daily Pending Target:</strong>
+                    <p style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', background: 'white', padding: '0.75rem', borderRadius: '8px' }}>
+                      {submittedData.reasonPendingTarget}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
 
-          <div style={{ marginTop: '1rem' }}>
-            <button
-              type="button"
-              onClick={async () => {
-                setSubmitting(true)
-                try {
-                  // Format the data with correct field names for the backend
-                  const updateData = {
-                    reportDate: formatDateForBackend(editingReport.report_date || editingReport.reportDate),
-                    locationType: editingReport.location_type || editingReport.locationType,
-                    timePeriod: editingReport.time_period || editingReport.timePeriod,
-                    projectName: editingReport.project_name || editingReport.projectName,
-                    dailyTarget: editingReport.daily_target || editingReport.dailyTarget,
-                    hourlyActivity: editingReport.hourly_activity || editingReport.hourlyActivity,
-                    problemFacedByEngineerHourly: editingReport.problem_faced_by_engineer_hourly || editingReport.problemFacedByEngineerHourly,
-                    problemResolvedOrNot: editingReport.problem_resolved_or_not || editingReport.problemResolvedOrNot,
-                    problemOccurStartTime: editingReport.problem_occur_start_time || editingReport.problemOccurStartTime,
-                    problemResolvedEndTime: editingReport.problem_resolved_end_time || editingReport.problemResolvedEndTime,
-                    onlineSupportRequiredForWhichProblem: editingReport.online_support_required_for_which_problem || editingReport.onlineSupportRequiredForWhichProblem,
-                    onlineSupportTime: (editingReport.online_support_time || editingReport.onlineSupportTime) || null,
-                    onlineSupportEndTime: (editingReport.online_support_end_time || editingReport.onlineSupportEndTime) || null,
-                    engineerNameWhoGivesOnlineSupport: editingReport.engineer_name_who_gives_online_support || editingReport.engineerNameWhoGivesOnlineSupport,
-                    engineerRemark: editingReport.engineer_remark || editingReport.engineerRemark,
-                    projectInchargeRemark: editingReport.project_incharge_remark || editingReport.projectInchargeRemark,
-                  }
+            {submittedData.locationType !== 'leave' && (
+              <>
+                <div className="vh-span-2" style={{ gridColumn: 'span 2', borderTop: '1px solid #d5e0f2', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                  <strong>Problems & Support:</strong>
+                </div>
+                {submittedData.problemFaced && (
+                  <div className="vh-span-2" style={{ gridColumn: 'span 2' }}>
+                    <strong>Problem Faced by Engineer:</strong>
+                    <p style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', background: 'white', padding: '0.75rem', borderRadius: '8px' }}>
+                      {submittedData.problemFaced}
+                    </p>
+                  </div>
+                )}
+                {submittedData.problemResolved && (
+                  <div className="vh-span-2" style={{ gridColumn: 'span 2' }}>
+                    <strong>Problem Resolved or Not and How:</strong>
+                    <p style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', background: 'white', padding: '0.75rem', borderRadius: '8px' }}>
+                      {submittedData.problemResolved}
+                    </p>
+                  </div>
+                )}
+                {submittedData.onlineSupportRequired && (
+                  <div>
+                    <strong>Online Support Required:</strong> {submittedData.onlineSupportRequired}
+                  </div>
+                )}
+                {submittedData.supportEngineerName && (
+                  <div><strong>Engineer Name Who Gives Online Support:</strong> {submittedData.supportEngineerName}</div>
+                )}
 
-                  const response = await fetch(`${endpoint}/${editingReport.id}`, {
-                    method: 'PUT',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                    },
-                    body: JSON.stringify(updateData),
-                  })
+                <div className="vh-span-2" style={{ gridColumn: 'span 2', borderTop: '1px solid #d5e0f2', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                  <strong>Site Dates & Personnel:</strong>
+                </div>
+                <div><strong>Site Start Date:</strong> {submittedData.siteStartDate || 'N/A'}</div>
+                {submittedData.siteEndDate && <div><strong>Site End Date:</strong> {submittedData.siteEndDate}</div>}
+                <div><strong>Incharge:</strong> {submittedData.incharge || 'N/A'}</div>
+              </>
+            )}
 
-                  if (!response.ok) {
-                    throw new Error('Unable to update hourly report. Please retry.')
-                  }
-
-                  setAlert({ type: 'success', message: 'Hourly report updated successfully!' })
-
-                  // Refresh existing reports
-                  const refreshResponse = await fetch(`${endpoint}/${formData.reportDate}`, {
-                    headers: {
-                      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                    },
-                  })
-                  if (refreshResponse.ok) {
-                    const reports = await refreshResponse.json()
-                    setExistingReports(reports)
-                  }
-
-                  setEditingReport(null)
-                } catch (error) {
-                  setAlert({ type: 'error', message: error.message })
-                } finally {
-                  setSubmitting(false)
-                }
-              }}
-              disabled={submitting}
-              style={{
-                padding: '0.75rem 1.5rem',
-                background: '#2ad1ff',
-                color: 'white',
-                border: 'none',
-                borderRadius: '12px',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-              }}
-            >
-              {submitting ? 'Updating…' : 'Update Report'}
-            </button>
+            {submittedData.remark && (
+              <div className="vh-span-2" style={{ gridColumn: 'span 2', borderTop: '1px solid #d5e0f2', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                <strong>Remark{submittedData.locationType === 'leave' ? ' (Leave Reason)' : ''}:</strong>
+                <p style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', background: submittedData.locationType === 'leave' ? '#fff3cd' : 'white', padding: '0.75rem', borderRadius: '8px', border: submittedData.locationType === 'leave' ? '1px solid #ffc107' : 'none' }}>
+                  {submittedData.remark}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      <form className="vh-form" onSubmit={handleSubmit}>
-        {/* Date and Project Selection */}
+      <div className="vh-form" onSubmit={handleSubmit}>
         <div className="vh-grid">
           <label>
-            <span>Report Date</span>
+            <span>Report Date *</span>
             <input
               type="date"
               name="reportDate"
               value={formData.reportDate}
               onChange={handleChange}
-              required
             />
+            <small style={{ color: '#666', display: 'block', marginTop: '0.25rem' }}>
+              Date for this daily target report (used for hourly report linking)
+            </small>
           </label>
 
           <label className="vh-span-2">
@@ -692,7 +839,6 @@ function HourlyReportForm() {
               name="locationType"
               value={formData.locationType}
               onChange={handleChange}
-              required
             >
               <option value="">Select location type</option>
               <option value="site">Site Location</option>
@@ -701,277 +847,429 @@ function HourlyReportForm() {
             </select>
           </label>
 
-          <label className="vh-span-2">
-            <span>Select Daily Target Report</span>
-            <select
-              onChange={handleDailyTargetSelect}
-              disabled={loadingTargets}
-            >
-              <option value="">
-                {loadingTargets ? 'Loading daily targets...' : 'Select from available daily reports'}
-              </option>
-              {dailyTargets.map(target => (
-                <option key={target.id} value={target.id}>
-                  {target.project_no} - {target.site_start_date}
-                </option>
-              ))}
-            </select>
-            {dailyTargets.length === 0 && !loadingTargets && (
-              <small style={{ color: '#8892aa', marginTop: '0.25rem', display: 'block' }}>
-                No daily target reports found for this date. Please create a daily target report first.
-              </small>
-            )}
-          </label>
+          {formData.locationType !== 'leave' && (
+            <>
+              <label>
+                <span>In Time</span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="time"
+                    name="inTime"
+                    value={formData.inTime}
+                    onChange={handleChange}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleInTimeAuto}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      background: '#2ad1ff',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    Auto
+                  </button>
+                </div>
+              </label>
+
+              <label>
+                <span>Out Time</span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="time"
+                    name="outTime"
+                    value={formData.outTime}
+                    onChange={handleChange}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleOutTimeAuto}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      background: '#2ad1ff',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    Auto
+                  </button>
+                </div>
+              </label>
+
+              <label className="vh-span-2">
+                <span>Customer Name</span>
+                <input
+                  type="text"
+                  name="customerName"
+                  placeholder="Enter customer name"
+                  value={formData.customerName}
+                  onChange={handleChange}
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>Customer Person</span>
+                <input
+                  type="text"
+                  name="customerPerson"
+                  placeholder="Enter customer contact person name"
+                  value={formData.customerPerson}
+                  onChange={handleChange}
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>Customer Contact No.</span>
+                <input
+                  type="tel"
+                  name="customerContact"
+                  placeholder="Enter customer contact number"
+                  value={formData.customerContact}
+                  onChange={handleChange}
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>End Customer Name</span>
+                <input
+                  type="text"
+                  name="endCustomerName"
+                  placeholder="Enter end customer name"
+                  value={formData.endCustomerName}
+                  onChange={handleChange}
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>End Customer Person</span>
+                <input
+                  type="text"
+                  name="endCustomerPerson"
+                  placeholder="Enter end customer contact person name"
+                  value={formData.endCustomerPerson}
+                  onChange={handleChange}
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>End Customer Contact No.</span>
+                <input
+                  type="tel"
+                  name="endCustomerContact"
+                  placeholder="Enter end customer contact number"
+                  value={formData.endCustomerContact}
+                  onChange={handleChange}
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>Project No. / Project Name</span>
+                <input
+                  type="text"
+                  name="projectNo"
+                  placeholder="Eg. VH-Metro Phase 2 / VH-OPS-0215"
+                  value={formData.projectNo}
+                  onChange={handleChange}
+                />
+              </label>
+            </>
+          )}
+
+          {formData.locationType === 'site' && (
+            <>
+              <label className="vh-span-2">
+                <span>Site Location (Auto-detected)</span>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    name="siteLocation"
+                    value={formData.siteLocation}
+                    onChange={handleChange}
+                    placeholder="Location will be automatically detected..."
+                    style={{ flex: 1, background: locationAccess ? '#f0f9ff' : '#f5f5f5' }}
+                    readOnly={locationAccess && !isEditMode}
+                  />
+                  <button
+                    type="button"
+                    onClick={getCurrentLocation}
+                    disabled={fetchingLocation || locationAccess}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      background: locationAccess ? '#06c167' : fetchingLocation ? '#8892aa' : '#2ad1ff',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: (fetchingLocation || locationAccess) ? 'not-allowed' : 'pointer',
+                      fontSize: '0.85rem',
+                      opacity: (fetchingLocation || locationAccess) ? 0.7 : 1,
+                      whiteSpace: 'nowrap',
+                    }}
+                    title="Get GPS coordinates and automatically fetch address"
+                  >
+                    {fetchingLocation ? '⏳ Detecting...' : locationAccess ? '✓ Location Set' : 'Get Location'}
+                  </button>
+                </div>
+                {fetchingLocation && (
+                  <small style={{ color: '#2ad1ff', marginTop: '0.25rem', display: 'block' }}>
+                    🔄 Fetching location name...
+                  </small>
+                )}
+                {locationError && (
+                  <small style={{ color: '#ff7a7a', marginTop: '0.25rem', display: 'block' }}>
+                    ⚠️ {locationError}
+                  </small>
+                )}
+                {fetchingLocation && (
+                  <small style={{ color: '#2ad1ff', marginTop: '0.25rem', display: 'block' }}>
+                    🔄 Detecting your location and fetching address...
+                  </small>
+                )}
+                {locationError && (
+                  <small style={{ color: '#ff7a7a', marginTop: '0.25rem', display: 'block' }}>
+                    ⚠️ {locationError}
+                  </small>
+                )}
+                {locationAccess && !fetchingLocation && formData.siteLocation && (
+                  <small style={{ color: '#06c167', marginTop: '0.25rem', display: 'block' }}>
+                    ✓ Location automatically detected: {formData.siteLocation}
+                    {formData.locationLat && formData.locationLng && (
+                      <span style={{ display: 'block', fontSize: '0.85rem', color: '#8892aa', marginTop: '0.25rem' }}>
+                        📍 GPS Coordinates: {formData.locationLat}, {formData.locationLng}
+                      </span>
+                    )}
+                  </small>
+                )}
+              </label>
+
+              {canUploadPDF && (
+                <label className="vh-span-2">
+                  <span>MOM Report (PDF)</span>
+                  <input
+                    type="file"
+                    name="momReport"
+                    accept=".pdf"
+                    onChange={handleChange}
+                    style={{ padding: '0.5rem' }}
+                  />
+                  {formData.momReport && (
+                    <small style={{ color: '#06c167', marginTop: '0.25rem', display: 'block' }}>
+                      Selected: {formData.momReport.name}
+                    </small>
+                  )}
+                </label>
+              )}
+            </>
+          )}
+
+          {formData.locationType !== 'leave' && (
+            <>
+              <label className="vh-span-2">
+                <span>Daily Target Planned by Site Engineer</span>
+                <textarea
+                  name="dailyTargetPlanned"
+                  rows={3}
+                  value={formData.dailyTargetPlanned}
+                  onChange={handleChange}
+                  placeholder="Describe the daily target planned..."
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>Daily Target Achieved by Engineer</span>
+                <textarea
+                  name="dailyTargetAchieved"
+                  rows={3}
+                  value={formData.dailyTargetAchieved}
+                  onChange={handleChange}
+                  placeholder="Describe what was achieved..."
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>Additional Activity Added by Customer/End Customer</span>
+                <textarea
+                  name="additionalActivity"
+                  rows={3}
+                  value={formData.additionalActivity}
+                  onChange={handleChange}
+                  placeholder="Describe additional activities..."
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>Who Added This Extra Activity</span>
+                <input
+                  type="text"
+                  name="whoAddedActivity"
+                  placeholder="Enter name of person who added the activity"
+                  value={formData.whoAddedActivity}
+                  onChange={handleChange}
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>Daily Pending Target</span>
+                <textarea
+                  name="dailyPendingTarget"
+                  rows={3}
+                  value={formData.dailyPendingTarget}
+                  onChange={handleChange}
+                  placeholder="Describe pending targets..."
+                />
+              </label>
+
+              <label className="vh-span-2">
+                <span>Reason for Daily Pending Target</span>
+                <textarea
+                  name="reasonPendingTarget"
+                  rows={3}
+                  value={formData.reasonPendingTarget}
+                  onChange={handleChange}
+                  placeholder="Explain the reason for pending targets..."
+                />
+              </label>
+            </>
+          )}
+
+          {formData.locationType !== 'leave' && (
+            <>
+              <label className="vh-span-2">
+                <span>Online Support Required</span>
+                <select
+                  name="onlineSupportRequired"
+                  value={formData.onlineSupportRequired || ''}
+                  onChange={handleChange}
+                >
+                  <option value="">Select option</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </label>
+
+              {formData.onlineSupportRequired === 'Yes' && (
+                <label className="vh-span-2">
+                  <span>Engineer Name Who Gives Online Support *</span>
+                  <input
+                    type="text"
+                    name="supportEngineerName"
+                    placeholder="Enter engineer name providing support"
+                    value={formData.supportEngineerName || ''}
+                    onChange={handleChange}
+                    required
+                  />
+                </label>
+              )}
+            </>
+          )}
+
+          {formData.locationType === 'site' && (
+            <>
+              <label>
+                <span>Site Start Date</span>
+                <input
+                  type="date"
+                  name="siteStartDate"
+                  value={formData.siteStartDate}
+                  onChange={handleChange}
+                />
+              </label>
+
+              <label>
+                <span>Site End Date</span>
+                <input
+                  type="date"
+                  name="siteEndDate"
+                  value={formData.siteEndDate}
+                  onChange={handleChange}
+                />
+              </label>
+            </>
+          )}
+
+          {formData.locationType !== 'leave' && (
+            <label className="vh-span-2">
+              <span>Incharge</span>
+              <input
+                type="text"
+                name="incharge"
+                placeholder="Enter incharge name"
+                value={formData.incharge}
+                onChange={handleChange}
+              />
+            </label>
+          )}
 
           <label className="vh-span-2">
-            <span>Project Name / Project No.</span>
-            <input
-              type="text"
-              name="projectName"
-              placeholder="Will be auto-filled from daily target report"
-              value={formData.projectName}
-              onChange={handleChange}
-              required
-            />
-          </label>
-
-          <label className="vh-span-2">
-            <span>Daily Target Planned by Site Engineer</span>
+            <span>Remark</span>
             <textarea
-              name="dailyTarget"
+              name="remark"
               rows={3}
-              value={formData.dailyTarget}
+              value={formData.remark}
               onChange={handleChange}
-              placeholder="Will be auto-filled from daily target report"
-              required
+              placeholder={formData.locationType === 'leave' ? "Optional: Provide a reason for leave..." : "Additional remarks..."}
             />
           </label>
         </div>
 
-        {/* Hourly Entries - Only show when not editing */}
-        {!editingReport && (
-          <div style={{ marginTop: '2rem' }}>
-            <h3 style={{ color: '#092544', marginBottom: '1rem' }}>New Hourly Reports (9am - 6pm)</h3>
-          <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '1rem' }}>
-            Current active period: <strong>{currentActivePeriod || 'None'}</strong><br/>
-            You can only fill and submit reports within their allocated time periods.
-          </p>
-
-          {formData.hourlyEntries.map((entry, index) => {
-            const isActivePeriod = entry.timePeriod === currentActivePeriod
-            const canEdit = isActivePeriod || !currentActivePeriod // Allow editing if no period is active (for testing/admin)
-
-            return (
-              <div
-                key={index}
-                style={{
-                  border: `1px solid ${isActivePeriod ? '#2ad1ff' : '#d5e0f2'}`,
-                  borderRadius: '12px',
-                  padding: '1.5rem',
-                  marginBottom: '1.5rem',
-                  background: isActivePeriod ? '#f0f9ff' : '#f9f9f9',
-                  opacity: canEdit ? 1 : 0.7
-                }}
-              >
-                <h4 style={{
-                  color: '#092544',
-                  marginBottom: '1rem',
-                  marginTop: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem'
-                }}>
-                  {entry.timePeriod}
-                  {isActivePeriod && (
-                    <span style={{
-                      background: '#2ad1ff',
-                      color: 'white',
-                      padding: '0.25rem 0.5rem',
-                      borderRadius: '12px',
-                      fontSize: '0.8rem'
-                    }}>
-                      ACTIVE
-                    </span>
-                  )}
-                  {!canEdit && (
-                    <span style={{
-                      background: '#ff7a7a',
-                      color: 'white',
-                      padding: '0.25rem 0.5rem',
-                      borderRadius: '12px',
-                      fontSize: '0.8rem'
-                    }}>
-                      LOCKED
-                    </span>
-                  )}
-                </h4>
-
-              <div className="vh-grid">
-                <label className="vh-span-2">
-                  <span>Hourly Activity *</span>
-                  <textarea
-                    rows={3}
-                    value={entry.hourlyActivity}
-                    onChange={(e) => handleHourlyEntryChange(index, 'hourlyActivity', e.target.value)}
-                    placeholder={
-                      canEdit
-                        ? "Describe your activities during this hour..."
-                        : `Can only fill during ${entry.timePeriod}`
-                    }
-                    required
-                    disabled={!canEdit}
-                  />
-                </label>
-
-                <label className="vh-span-2">
-                  <span>Problem Faced by Engineer (Hourly)</span>
-                  <textarea
-                    rows={2}
-                    value={entry.problemFacedByEngineerHourly}
-                    onChange={(e) => handleHourlyEntryChange(index, 'problemFacedByEngineerHourly', e.target.value)}
-                    placeholder="Describe any problems faced during this hour..."
-                  />
-                </label>
-
-                <label>
-                  <span>Problem Resolved or Not</span>
-                  <select
-                    value={entry.problemResolvedOrNot}
-                    onChange={(e) => handleHourlyEntryChange(index, 'problemResolvedOrNot', e.target.value)}
-                    disabled={!canEdit}
-                  >
-                    <option value="">Select</option>
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                </label>
-
-                {entry.problemResolvedOrNot === 'Yes' && (
-                  <>
-                    <label>
-                      <span>Problem Occur Start Time *</span>
-                      <input
-                        type="time"
-                        value={entry.problemOccurStartTime}
-                        onChange={(e) => handleHourlyEntryChange(index, 'problemOccurStartTime', e.target.value)}
-                        disabled={!canEdit}
-                        required
-                      />
-                    </label>
-
-                    <label>
-                      <span>Problem Resolved End Time *</span>
-                      <input
-                        type="time"
-                        value={entry.problemResolvedEndTime}
-                        onChange={(e) => handleHourlyEntryChange(index, 'problemResolvedEndTime', e.target.value)}
-                        disabled={!canEdit}
-                        required
-                      />
-                    </label>
-
-                    <label className="vh-span-2">
-                      <span>Online Support Required for Which Problem</span>
-                      <textarea
-                        rows={2}
-                        value={entry.onlineSupportRequiredForWhichProblem}
-                        onChange={(e) => handleHourlyEntryChange(index, 'onlineSupportRequiredForWhichProblem', e.target.value)}
-                        placeholder="Describe which problem required online support..."
-                        disabled={!canEdit}
-                      />
-                    </label>
-
-                    {entry.onlineSupportRequiredForWhichProblem && (
-                      <>
-                        <label>
-                          <span>Online Support Time *</span>
-                          <input
-                            type="time"
-                            value={entry.onlineSupportTime}
-                            onChange={(e) => handleHourlyEntryChange(index, 'onlineSupportTime', e.target.value)}
-                            disabled={!canEdit}
-                            required
-                          />
-                        </label>
-
-                        <label>
-                          <span>Online Support End Time *</span>
-                          <input
-                            type="time"
-                            value={entry.onlineSupportEndTime}
-                            onChange={(e) => handleHourlyEntryChange(index, 'onlineSupportEndTime', e.target.value)}
-                            disabled={!canEdit}
-                            required
-                          />
-                        </label>
-
-                        <label className="vh-span-2">
-                          <span>Engineer Name Who Gives Online Support *</span>
-                          <input
-                            type="text"
-                            value={entry.engineerNameWhoGivesOnlineSupport}
-                            onChange={(e) => handleHourlyEntryChange(index, 'engineerNameWhoGivesOnlineSupport', e.target.value)}
-                            placeholder="Enter engineer name providing support"
-                            disabled={!canEdit}
-                            required
-                          />
-                        </label>
-                      </>
-                    )}
-                  </>
-                )}
-
-                <label className="vh-span-2">
-                  <span>Engineer Remark</span>
-                  <textarea
-                    rows={2}
-                    value={entry.engineerRemark}
-                    onChange={(e) => handleHourlyEntryChange(index, 'engineerRemark', e.target.value)}
-                    placeholder="Additional remarks from engineer..."
-                  />
-                </label>
-
-                <label className="vh-span-2">
-                  <span>Project Incharge Remark</span>
-                  <textarea
-                    rows={2}
-                    value={entry.projectInchargeRemark}
-                    onChange={(e) => handleHourlyEntryChange(index, 'projectInchargeRemark', e.target.value)}
-                    placeholder="Remarks from project incharge..."
-                  />
-                </label>
-              </div>
-            </div>
-            )
-          })}
-          </div>
-        )}
-
-        {/* Form Actions - Only show when not editing */}
-        {!editingReport && (
-          <div className="vh-form-actions">
-            <button type="submit" disabled={submitting || !currentActivePeriod}>
-              {submitting ? 'Saving…' : `Submit ${currentActivePeriod || 'Hourly'} Report`}
-            </button>
+        <div className="vh-form-actions">
+          <button type="button" onClick={handleSubmit} disabled={submitting || (formData.locationType === 'site' && !locationAccess && !(isEditMode && formData.locationLat && formData.locationLng))}>
+            {submitting ? 'Saving…' : isEditMode ? 'Update Report' : 'Submit Report'}
+          </button>
+          {isEditMode && (
             <button
               type="button"
-              className="ghost"
-              onClick={() => setFormData(defaultPayload())}
-              disabled={submitting}
+              onClick={() => {
+                setIsEditMode(false)
+                setFormData(defaultPayload())
+                setLocationAccess(false)
+                setLocationError('')
+              }}
+              style={{
+                padding: '0.75rem 1.5rem',
+                background: '#f5f5f5',
+                color: '#092544',
+                border: '1px solid #d5e0f2',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '0.95rem',
+              }}
             >
-              Reset form
+              Cancel Edit
             </button>
-            {!currentActivePeriod && (
-              <small style={{ color: '#ff7a7a', display: 'block', marginTop: '0.5rem' }}>
-                ⚠️ Reports can only be submitted during active time periods (9am-6pm)
-              </small>
-            )}
-          </div>
-        )}
-      </form>
+          )}
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              const newFormData = defaultPayload()
+              setFormData(newFormData)
+              setLocationAccess(false)
+              setLocationError('')
+              setSubmittedData(null)
+              setIsEditMode(false)
+              // Reset file input
+              const fileInput = document.querySelector('input[name="momReport"]')
+              if (fileInput) {
+                fileInput.value = ''
+              }
+            }}
+            disabled={submitting}
+          >
+            Reset form
+          </button>
+        </div>
+      </div>
     </section>
   )
 }
 
-export default HourlyReportForm
-
+export default DailyTargetForm
