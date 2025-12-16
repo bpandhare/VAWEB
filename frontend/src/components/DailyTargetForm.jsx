@@ -413,11 +413,32 @@ function DailyTargetForm() {
 
   const handleChange = (event) => {
     const { name, value, type, files } = event.target
+
+    // File handling unchanged
     if (type === 'file') {
       setFormData((prev) => ({ ...prev, [name]: files[0] || null }))
-    } else {
-      setFormData((prev) => ({ ...prev, [name]: value }))
+      return
     }
+
+    // Always store contact numbers as digits-only
+    if (name === 'customerContact' || name === 'endCustomerContact') {
+      const digits = (value ?? '').toString().replace(/\D/g, '')
+      setFormData((prev) => ({ ...prev, [name]: digits }))
+      return
+    }
+
+    // If online support flag changes, clear engineer name when it's "No"
+    if (name === 'onlineSupportRequired') {
+      const v = value
+      setFormData((prev) => ({
+        ...prev,
+        onlineSupportRequired: v,
+        supportEngineerName: v === 'Yes' ? prev.supportEngineerName : '',
+      }))
+      return
+    }
+
+    setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
   const handleInTimeAuto = () => {
@@ -519,7 +540,7 @@ function DailyTargetForm() {
       setFormData(newFormData)
       setLocationAccess(false)
       setLocationError('')
-      
+
       // Reset file input
       setTimeout(() => {
         const fileInput = document.querySelector('input[name="momReport"]')
@@ -1119,14 +1140,13 @@ function DailyTargetForm() {
             </>
           )}
 
-
           {formData.locationType !== 'leave' && (
             <>
               <label className="vh-span-2">
                 <span>Online Support Required</span>
                 <select
                   name="onlineSupportRequired"
-                  value={formData.onlineSupportRequired}
+                  value={formData.onlineSupportRequired || ''}
                   onChange={handleChange}
                 >
                   <option value="">Select option</option>
@@ -1135,16 +1155,19 @@ function DailyTargetForm() {
                 </select>
               </label>
 
-              <label className="vh-span-2">
-                <span>Engineer Name Who Gives Online Support</span>
-                <input
-                  type="text"
-                  name="supportEngineerName"
-                  placeholder="Enter engineer name providing support"
-                  value={formData.supportEngineerName}
-                  onChange={handleChange}
-                />
-              </label>
+              {formData.onlineSupportRequired === 'Yes' && (
+                <label className="vh-span-2">
+                  <span>Engineer Name Who Gives Online Support *</span>
+                  <input
+                    type="text"
+                    name="supportEngineerName"
+                    placeholder="Enter engineer name providing support"
+                    value={formData.supportEngineerName || ''}
+                    onChange={handleChange}
+                    required
+                  />
+                </label>
+              )}
             </>
           )}
 
