@@ -209,8 +209,8 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-// CHANGED THIS LINE: Mount authRouter at /api instead of /api/auth
-app.use('/api', authRouter)  // ← CHANGED FROM '/api/auth'
+// FIXED: Mount authRouter at /api/auth to match frontend calls
+app.use('/api/auth', authRouter)  // ← FIXED LINE
 app.use('/api/activity', activityRouter)
 app.use('/api/hourly-report', hourlyReportRouter)
 app.use('/api/daily-target', dailyTargetRouter)
@@ -225,5 +225,6 @@ app.use((err, _req, res, _next) => {
 migrateDatabase().then(() => {
   app.listen(PORT, HOST, () => {
     console.log(`API server ready on http://${HOST}:${PORT}`)
+    console.log(`Auth endpoint available at: http://${HOST}:${PORT}/api/auth/login`)
   })
 })

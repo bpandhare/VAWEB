@@ -2,7 +2,11 @@ import './Sidebar.css'
 import { useAuth } from './AuthContext'
 // sidebar doesn't manage MoM state; CreateMoM is a separate page
 
-
+// Import a logo image - make sure to add your logo file to the project
+// Option 1: If you have a logo image in your assets folder
+import logo from '../assets/logo.jpeg' // Adjust the path based on your project structure
+// Option 2: Or use an online logo
+// const logoUrl = 'https://example.com/your-logo.png'
 
 function Sidebar({ currentPage, onPageChange }) {
   const { user } = useAuth()
@@ -11,8 +15,16 @@ function Sidebar({ currentPage, onPageChange }) {
   return (
     <aside className="vh-sidebar">
       <div className="vh-brand">
-        <span className="vh-pill">VICKHARDTH</span>
-       
+        <div className="vh-brand-header">
+          {/* Add your logo here */}
+          <img 
+            src={logo} 
+            alt="Vickhardth Logo" 
+            className="vh-logo"
+            // If using online URL: src={logoUrl}
+          />
+          <span className="vh-pill">VICKHARDTH</span>
+        </div>
         <p className="vh-tagline">Daily reporting hub for site engineers.</p>
       </div>
 
@@ -71,15 +83,8 @@ function Sidebar({ currentPage, onPageChange }) {
           </section>
         </>
       )}
-
-      
-
-      
-      
     </aside>
   )
 }
 
 export default Sidebar
-
-

@@ -147,3 +147,18 @@
 }
 
 
+/* Add this to your Sidebar.css - adjust only the width/height values */
+.vh-brand-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.vh-logo {
+  width: 36px; /* ADJUST THIS SIZE */
+  height: 36px; /* ADJUST THIS SIZE */
+  object-fit: contain; /* Keep this for proper image scaling */
+  border-radius: 6px; /* Optional: adjust if needed */
+  border: 1px solid rgba(255, 255, 255, 0.2); /* Optional: match your theme */
+}
