@@ -209,7 +209,8 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-app.use('/api/auth', authRouter)
+// CHANGED THIS LINE: Mount authRouter at /api instead of /api/auth
+app.use('/api', authRouter)  // ← CHANGED FROM '/api/auth'
 app.use('/api/activity', activityRouter)
 app.use('/api/hourly-report', hourlyReportRouter)
 app.use('/api/daily-target', dailyTargetRouter)
